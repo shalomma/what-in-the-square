@@ -6,21 +6,53 @@ export type Shape = typeof SHAPES[number];
 export type Size = 2 | 3 | 4;
 export type Mode = 'scatter' | 'stack';
 export type Language = 'en' | 'he';
-export type Card = { id: string; row: number; column: number; color: Color; shape: Shape };
+export type Level = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type Feature = 'color' | 'shape' | 'quantity' | 'scale' | 'direction' | 'fill';
+export const LEVELS = [0, 1, 2, 3, 4, 5, 6, 7] as const;
+export const LEVEL_AXES: Record<Level, { row: Feature | null; column: Feature }> = {
+  0: { row: null, column: 'color' }, 1: { row: 'color', column: 'shape' },
+  2: { row: 'color', column: 'quantity' }, 3: { row: 'shape', column: 'quantity' },
+  4: { row: 'scale', column: 'shape' }, 5: { row: 'color', column: 'direction' },
+  6: { row: 'fill', column: 'shape' }, 7: { row: 'shape', column: 'color' },
+};
+export type Card = { id: string; row: number; column: number; color: Color; shape: Shape;
+  quantity: number; scale: number; direction: number; fill: number };
+export function clueLabel(feature: Feature, index: number, language: Language): string {
+  const labels = {
+    en: { color: ['coral', 'blue', 'gold', 'green'], shape: [...SHAPES], quantity: ['one', 'two', 'three', 'four'], scale: ['small', 'medium', 'large', 'very large'], direction: ['up', 'right', 'down', 'left'], fill: ['solid', 'striped', 'dotted', 'outline'] },
+    he: { color: ['אלמוג', 'כחול', 'זהב', 'ירוק'], shape: ['עיגול', 'משולש', 'ריבוע', 'מעוין'], quantity: ['אחד', 'שניים', 'שלושה', 'ארבעה'], scale: ['קטן', 'בינוני', 'גדול', 'גדול מאוד'], direction: ['למעלה', 'ימינה', 'למטה', 'שמאלה'], fill: ['מלא', 'פסים', 'נקודות', 'מסגרת'] },
+  };
+  return labels[language][feature][index];
+}
+export const LEVEL_NAMES = {
+  en: ['One clue: colors', 'Colors & shapes', 'Colors & quantities', 'Shapes & quantities', 'Sizes & shapes', 'Colors & directions', 'Fills & shapes', 'Shapes & colors'],
+  he: ['רמז אחד: צבעים', 'צבעים וצורות', 'צבעים וכמויות', 'צורות וכמויות', 'גדלים וצורות', 'צבעים וכיוונים', 'מילויים וצורות', 'צורות וצבעים'],
+};
 export type Board = (string | null)[];
 type Snapshot = { board: Board; assisted: string[] };
 export type GameState = Snapshot & {
-  version: 1; size: Size; order: string[]; history: Snapshot[];
+  version: 1; level: Level; size: Size; order: string[]; history: Snapshot[];
   hintedCards: string[];
   stats: { mistakes: number; hints: number; undos: number };
 };
 export type SavedGame = { game: GameState; mode: Mode; language: Language };
+export type LevelGames = Partial<Record<string, GameState>>;
+export const LEVEL_SIZES = [2, 3, 4] as const;
 export const SAVE_KEY = 'what-in-the-square:v1';
 
-export function cardsFor(size: Size): Card[] {
-  return COLORS.slice(0, size).flatMap((color, row) => SHAPES.slice(0, size).map((shape, column) => ({
-    id: `${row}-${column}`, row, column, color, shape,
-  })));
+export function cardsFor(size: Size, level: Level = 1): Card[] {
+  const axes = LEVEL_AXES[level];
+  return Array.from({ length: size * size }, (_, i) => {
+    const row = Math.floor(i / size), column = i % size;
+    const card: Card = { id: `${row}-${column}`, row, column, color: 'green', shape: 'circle', quantity: 1, scale: 3, direction: 0, fill: 0 };
+    for (const [feature, index] of [[axes.row, row], [axes.column, column]] as const) {
+      if (feature === 'color') card.color = COLORS[index];
+      else if (feature === 'shape') card.shape = SHAPES[index];
+      else if (feature === 'quantity') card.quantity = index + 1;
+      else if (feature) card[feature] = index;
+    }
+    return card;
+  });
 }
 
 export function shuffled<T>(items: readonly T[], random = Math.random): T[] {
@@ -32,8 +64,8 @@ export function shuffled<T>(items: readonly T[], random = Math.random): T[] {
   return result;
 }
 
-export function createGame(size: Size = 3, random = Math.random): GameState {
-  return { version: 1, size, order: shuffled(cardsFor(size).map(c => c.id), random),
+export function createGame(size: Size = 3, random = Math.random, level: Level = 1): GameState {
+  return { version: 1, level, size, order: shuffled(cardsFor(size, level).map(c => c.id), random),
     board: Array(size * size).fill(null), assisted: [], hintedCards: [], history: [],
     stats: { mistakes: 0, hints: 0, undos: 0 } };
 }
@@ -44,22 +76,22 @@ export function remaining(state: GameState): string[] {
 
 export function isComplete(state: GameState): boolean {
   return state.board.length === state.size ** 2 && state.board.every((id, cell) =>
-    id !== null && isValidPlacement(state.size, id, cell));
+    id !== null && isValidPlacement(state.size, id, cell, state.level));
 }
 
-export function isValidPlacement(size: Size, cardId: string, cell: number): boolean {
-  const card = cardsFor(size).find(c => c.id === cardId);
+export function isValidPlacement(size: Size, cardId: string, cell: number, level: Level = 1): boolean {
+  const card = cardsFor(size, level).find(c => c.id === cardId);
   return !!card && Number.isInteger(cell) && cell >= 0 && cell < size ** 2 &&
-    card.row === Math.floor(cell / size) && card.column === cell % size;
+    (level === 0 || card.row === Math.floor(cell / size)) && card.column === cell % size;
 }
 
 export function place(state: GameState, cardId: string, cell: number, hinted = false):
   { state: GameState; outcome: 'correct' | 'incorrect' | 'occupied' | 'unchanged' } {
-  if (!cardsFor(state.size).some(c => c.id === cardId) || !Number.isInteger(cell) || cell < 0 || cell >= state.size ** 2)
+  if (!cardsFor(state.size, state.level).some(c => c.id === cardId) || !Number.isInteger(cell) || cell < 0 || cell >= state.size ** 2)
     return { state, outcome: 'unchanged' };
   if (state.board[cell] === cardId) return { state, outcome: 'unchanged' };
   if (state.board[cell] !== null) return { state, outcome: 'occupied' };
-  if (!isValidPlacement(state.size, cardId, cell))
+  if (!isValidPlacement(state.size, cardId, cell, state.level))
     return { state: { ...state, stats: { ...state.stats, mistakes: state.stats.mistakes + 1 } }, outcome: 'incorrect' };
   const board = state.board.map(id => id === cardId ? null : id);
   board[cell] = cardId;
@@ -98,11 +130,11 @@ export function skipTop(state: GameState): GameState {
 export function parseSaved(raw: string): SavedGame | null {
   try {
     const value = JSON.parse(raw);
-    const g = value?.game;
-    if (!g || g.version !== 1 || ![2, 3, 4].includes(g.size) || !['scatter', 'stack'].includes(value.mode) || !['en', 'he'].includes(value.language)) return null;
-    const ids = cardsFor(g.size).map(c => c.id);
+    const g = value?.game ? { ...value.game, level: value.game.level ?? 1 } : null;
+    if (!g || !LEVELS.includes(g.level) || g.version !== 1 || ![2, 3, 4].includes(g.size) || !['scatter', 'stack'].includes(value.mode) || !['en', 'he'].includes(value.language)) return null;
+    const ids = cardsFor(g.size, g.level).map(c => c.id);
     const snapshotValid = (s: Snapshot) => s && Array.isArray(s.board) && s.board.length === ids.length &&
-      s.board.every((id, cell) => id === null || (typeof id === 'string' && isValidPlacement(g.size, id, cell))) &&
+      s.board.every((id, cell) => id === null || (typeof id === 'string' && isValidPlacement(g.size, id, cell, g.level))) &&
       new Set(s.board.filter(Boolean)).size === s.board.filter(Boolean).length &&
       Array.isArray(s.assisted) && new Set(s.assisted).size === s.assisted.length &&
       s.assisted.every(id => typeof id === 'string' && s.board.includes(id));
@@ -112,5 +144,35 @@ export function parseSaved(raw: string): SavedGame | null {
       !Array.isArray(g.history) || g.history.length > 10000 || !g.history.every(snapshotValid) || !g.stats ||
       !['mistakes', 'hints', 'undos'].every(key => Number.isSafeInteger(g.stats[key]) && g.stats[key] >= 0)) return null;
     return { game: g, mode: value.mode, language: value.language };
+  } catch { return null; }
+}
+
+/** Progress is independent for every combination of clue family and board size. */
+export const progressKey = (level: Level, size: Size) => `${level}:${size}`;
+export function switchLevel(game: GameState, levels: LevelGames, level: Level, size: Size = game.size): { game: GameState; levels: LevelGames } {
+  if (level === game.level && size === game.size) return { game, levels };
+  return { game: levels[progressKey(level, size)] ?? createGame(size, Math.random, level),
+    levels: { ...levels, [progressKey(game.level, game.size)]: game } };
+}
+export function packProgress(saved: SavedGame, levels: LevelGames) {
+  return { ...saved, levels: { ...levels, [progressKey(saved.game.level, saved.game.size)]: saved.game } };
+}
+export function parseProgress(raw: string): (SavedGame & { levels: LevelGames }) | null {
+  const saved = parseSaved(raw);
+  if (!saved) return null;
+  try {
+    const value = JSON.parse(raw);
+    const levels: LevelGames = {};
+    if (value.levels !== undefined) {
+      if (!value.levels || typeof value.levels !== 'object' || Array.isArray(value.levels)) return null;
+      for (const [key, game] of Object.entries(value.levels)) {
+        const parsed = parseSaved(JSON.stringify({ ...saved, game }));
+        if (!parsed) return null;
+        const expected = progressKey(parsed.game.level, parsed.game.size);
+        if (key !== expected && key !== String(parsed.game.size)) return null;
+        levels[expected] = parsed.game;
+      }
+    }
+    return packProgress(saved, levels);
   } catch { return null; }
 }
