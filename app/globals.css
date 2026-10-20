@@ -237,3 +237,19 @@ h2 { font-size: 21px; letter-spacing: -.65px; font-weight: 550; margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+.level-navigation { margin: 0 0 24px; }
+.level-controls { display: flex; align-items: center; gap: 10px; }
+.level-tabs { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.level-tabs button { display: flex; align-items: center; gap: 9px; text-align: start; padding: 11px; border: 1px solid #dce1d4; border-radius: 12px; background: #fffefa; font-size: 13px; }
+.level-tabs button[aria-current] { background: #e6eddd; border-color: var(--green-dark); }
+.level-number { flex-shrink: 0; display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #eef0e5; font-weight: 700; }
+.level-previous svg { transform: rotate(180deg); }
+.level-navigation>p { margin: 12px 48px 0; color: #697367; font-size: 12px; }
+.board.single-clue { grid-template-columns: repeat(var(--size), minmax(0, 1fr)); }
+.column-header>.shape, .row-header>.shape { width: 45px; height: 45px; }
+@media (max-width: 640px) {
+  .level-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .level-tabs button { padding: 8px; font-size: 11px; gap: 5px; }
+  .level-navigation>p { margin-inline: 0; }
+}
