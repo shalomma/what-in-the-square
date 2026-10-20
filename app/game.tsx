@@ -123,6 +123,7 @@ export default function Game() {
   const [mode, setMode] = useState<Mode>('scatter');
   const [language, setLanguage] = useState<Language>('en');
   const [selected, setSelected] = useState<string | null>(null);
+  const [heldPointer, setHeldPointer] = useState<{ x: number; y: number; size: number } | null>(null);
   const [focusCell, setFocusCell] = useState<number | null>(null);
   const [hintLevel, setHintLevel] = useState(0);
   const [hintCard, setHintCard] = useState<string | null>(null);
@@ -184,7 +185,33 @@ export default function Game() {
     wasComplete.current = complete;
   }, [complete, ready]);
 
-  const clear = () => { setSelected(null); setFocusCell(null); setHintLevel(0); setHintCard(null); setFeedback('idle'); };
+  useEffect(() => {
+    if (!selected || panel || celebrate) { setHeldPointer(null); return; }
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      const size = document.querySelector('[data-cell]')?.getBoundingClientRect().width ?? 80;
+      setHeldPointer({ x: event.clientX, y: event.clientY, size });
+    };
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelected(null); setHeldPointer(null); setFocusCell(null);
+        setHintLevel(0); setHintCard(null); setFeedback('idle');
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('keydown', cancel);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('keydown', cancel);
+    };
+  }, [selected, panel, celebrate]);
+
+  const grabPointer = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!event.detail || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    const size = document.querySelector('[data-cell]')?.getBoundingClientRect().width ?? 80;
+    setHeldPointer({ x: event.clientX, y: event.clientY, size });
+  };
+  const clear = () => { setSelected(null); setHeldPointer(null); setFocusCell(null); setHintLevel(0); setHintCard(null); setFeedback('idle'); };
   const attempt = (id: string, cell: number) => {
     const result = place(game, id, cell);
     setGame(result.state);
@@ -232,7 +259,18 @@ export default function Game() {
     : [axes.row ? `מחפשים את השורה: ${hintTarget ? rowLabel(hintTarget.row) : ''}.` : `מחפשים את הצבע למעלה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.`, axes.row ? `עכשיו מחפשים את העמודה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.` : 'כל משבצת ריקה בעמודה מתאימה.', axes.row ? 'איפה שני הרמזים נפגשים?' : 'אפשר לנסות משבצת ריקה מוארת.'];
   const announcement = hintLevel ? hintMessages[hintLevel - 1] : complete ? t.complete : ['chosen', 'squareChosen', 'wrong'].includes(feedback) ? ruleText : t[feedback];
 
-  return <main className="app-shell" dir={language === 'he' ? 'rtl' : 'ltr'}>
+  return <main className="app-shell" onClick={event => {
+    if (selected && !(event.target as Element).closest('button, a, dialog')) clear();
+  }} dir={language === 'he' ? 'rtl' : 'ltr'}>
+    {selected && heldPointer && !panel && !celebrate && <div
+      className="held-card"
+      aria-hidden="true"
+      style={{ position: 'fixed', left: heldPointer.x, top: heldPointer.y,
+        width: heldPointer.size, height: heldPointer.size, transform: 'translate(-50%, -50%)',
+        pointerEvents: 'none', zIndex: 1000, display: 'grid', placeItems: 'center',
+        background: 'var(--paper, #fffefa)', borderRadius: 16,
+        boxShadow: '0 8px 24px #0002', padding: 8, boxSizing: 'border-box' }}
+    ><CardSymbol card={cards.find(card => card.id === selected)!} level={game.level}/></div>}
     <header className="site-header flex items-center justify-between">
       <a className="brand" href="/" aria-label={t.brand}>
         <span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span>
@@ -284,8 +322,8 @@ export default function Game() {
               return <button key={cell} data-cell={cell} className={`board-cell ${id ? 'filled' : ''} ${selected && id === selected ? 'selected' : ''} ${focusCell === cell ? 'focused' : ''} ${hinted ? 'hint-cell' : ''}`}
                 aria-label={`${[rowLabel(row), columnLabel(column)].filter(Boolean).join(' · ')} · ${row + 1}, ${column + 1}${id ? ` · ${t.complete}` : ''}`}
                 aria-pressed={focusCell === cell || (id !== null && selected === id)} disabled={!ready}
-                onClick={() => chooseCell(cell)}>
-                {card ? <motion.span className="placed-symbol" initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><CardSymbol card={card} level={game.level}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
+                onClick={event => { if (!selected && id) grabPointer(event); chooseCell(cell); }}>
+                {card ? <motion.span className="placed-symbol" style={{ visibility: selected === id && heldPointer ? 'hidden' : 'visible' }} initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><CardSymbol card={card} level={game.level}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
               </button>;
             })}
           </div>)}
@@ -314,8 +352,8 @@ export default function Game() {
                 return <motion.button key={id} layout={!reducedMotion} className={`play-card ${selected === id ? 'selected' : ''}`} data-card={id}
                   style={{ '--tilt': `${((card.row * 3 + card.column * 2) % 5) - 2}deg` } as CSSProperties}
                   aria-label={cardName(id)} aria-pressed={selected === id} disabled={!ready}
-                  initial={false} animate={{ opacity: 1, scale: 1 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: .8 }}
-                  transition={{ duration: .18 }} onClick={() => chooseCard(id)}><CardSymbol card={card} level={game.level}/><span className="card-grain" aria-hidden="true"/></motion.button>;
+                  initial={false} animate={{ opacity: selected === id && heldPointer ? .15 : 1, scale: 1 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: .8 }}
+                  transition={{ duration: .18 }} onClick={event => { if (focusCell === null && selected !== id) grabPointer(event); chooseCard(id); }}><CardSymbol card={card} level={game.level}/><span className="card-grain" aria-hidden="true"/></motion.button>;
               })}
             </AnimatePresence>
           </>}
