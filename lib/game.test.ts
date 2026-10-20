@@ -74,3 +74,63 @@ describe('saved progress', () => {
     ]) expect(parseSaved(JSON.stringify({ ...save, game: { ...save.game, ...patch } }))).toBeNull();
   });
 });
+
+import { LEVELS, LEVEL_AXES, packProgress, parseProgress, switchLevel } from './game';
+
+describe('clue levels', () => {
+  it.each(LEVELS)('supports the correct placements and completion at level %s in every board size', level => {
+    for (const size of [2, 3, 4] as const) {
+      let game = createGame(size, Math.random, level);
+      for (const card of cardsFor(size, level)) {
+        const valid = Array.from({ length: size ** 2 }, (_, i) => i).filter(i => isValidPlacement(size, card.id, i, level));
+        expect(valid).toHaveLength(level === 0 ? size : 1);
+        const cell = (level === 0 ? size - card.row - 1 : card.row) * size + card.column;
+        const result = place(game, card.id, cell);
+        expect(result.outcome).toBe('correct');
+        game = result.state;
+      }
+      expect(isComplete(game)).toBe(true);
+      const saved = { game, mode: 'scatter' as const, language: 'he' as const };
+      expect(parseSaved(JSON.stringify(saved))).toEqual(saved);
+      expect(isComplete(undo(game))).toBe(false);
+    }
+  });
+  it('ignores vertical card order in the single-clue level and rejects a different color column', () => {
+    const game = createGame(3, Math.random, 0);
+    expect(place(game, '0-0', 6).outcome).toBe('correct');
+    expect(place(game, '0-0', 7).outcome).toBe('incorrect');
+    expect(LEVEL_AXES[0].row).toBeNull();
+  });
+  it('cards encode each clue combination, including swapped axes', () => {
+    expect(cardsFor(3, 2).find(c => c.id === '1-2')).toMatchObject({ color: 'blue', quantity: 3 });
+    expect(cardsFor(3, 3).find(c => c.id === '1-2')).toMatchObject({ shape: 'triangle', quantity: 3 });
+    expect(cardsFor(3, 4).find(c => c.id === '1-2')).toMatchObject({ scale: 1, shape: 'square' });
+    expect(cardsFor(3, 5).find(c => c.id === '1-2')).toMatchObject({ color: 'blue', direction: 2 });
+    expect(cardsFor(3, 6).find(c => c.id === '1-2')).toMatchObject({ fill: 1, shape: 'square' });
+    expect(cardsFor(3, 7).find(c => c.id === '1-2')).toMatchObject({ shape: 'triangle', color: 'gold' });
+  });
+  it('restores independent progress when switching clue families and sizes', () => {
+    const first = place(createGame(3, Math.random, 0), '0-0', 6, true).state;
+    const second = switchLevel(first, {}, 2);
+    const progressed = place(second.game, '1-1', 4).state;
+    const small = switchLevel(progressed, second.levels, 2, 2);
+    const back = switchLevel(small.game, small.levels, 0, 3);
+    expect(back.game).toEqual(first);
+    const saved = packProgress({ game: back.game, mode: 'stack', language: 'he' }, back.levels);
+    const restored = parseProgress(JSON.stringify(saved))!;
+    expect(restored).toEqual(saved);
+    expect(switchLevel(restored.game, restored.levels, 2, 3).game).toEqual(progressed);
+  });
+  it('migrates the original color and shape save to level 1', () => {
+    const game = place(createGame(3), '0-0', 0).state;
+    const { level: _level, ...legacy } = game;
+    const restored = parseProgress(JSON.stringify({ game: legacy, levels: { 3: legacy }, mode: 'scatter', language: 'en' }))!;
+    expect(restored.game.level).toBe(1);
+    expect(restored.levels['1:3']?.board[0]).toBe('0-0');
+  });
+  it('rejects invalid level identities and mismatched progress keys', () => {
+    const saved = { game: createGame(3), mode: 'scatter', language: 'en' };
+    expect(parseSaved(JSON.stringify({ ...saved, game: { ...saved.game, level: 8 } }))).toBeNull();
+    expect(parseProgress(JSON.stringify({ ...saved, levels: { '2:3': saved.game } }))).toBeNull();
+  });
+});
