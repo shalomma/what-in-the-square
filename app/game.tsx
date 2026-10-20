@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, useId, type CSSProperties } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { COLORS, SHAPES, SAVE_KEY, cardsFor, createGame, isComplete, parseSaved, place, remaining, returnCard, shuffleRemaining, skipTop, undo, type Color, type GameState, type Language, type Mode, type Shape, type Size } from '@/lib/game';
+import { COLORS, SHAPES, SAVE_KEY, LEVELS, LEVEL_AXES, LEVEL_NAMES, clueLabel, progressKey, isValidPlacement, cardsFor, createGame, isComplete, parseProgress, packProgress, switchLevel, place, remaining, returnCard, shuffleRemaining, skipTop, undo, type Card, type Feature, type Level, type Color, type GameState, type Language, type LevelGames, type Mode, type Shape, type Size } from '@/lib/game';
 
 const words = {
   en: {
+    levels: 'Choose a level', level: 'Level', previousLevel: 'Previous level', nextLevel: 'Next level', levelProgress: 'Progress is saved for each level.',
     brand: 'what in the square', parent: 'For grown-ups', eyebrow: 'A LITTLE ROOM TO THINK',
-    title: 'Every card has', titleEnd: 'a little home.', intro: 'Match a color. Find a shape. Make it your own.',
+    title: 'Every card has', titleEnd: 'a little home.', intro: 'Explore the clues. Find a place. Make it your own.',
     board: 'Find the square', tray: 'Your little collection', scatter: 'Spread out', stack: 'Make a stack',
     cardsLeft: 'cards to explore', cardLeft: 'card to explore', complete: 'All at home',
     shuffle: 'Shuffle', skip: 'Next card', undo: 'Undo', hint: 'A little hint', more: 'Another hint',
@@ -25,7 +26,7 @@ const words = {
     puzzle: 'Puzzle size', size2: 'A gentle start', size3: 'Room to explore', size4: 'A bigger puzzle',
     language: 'Language', session: 'This puzzle', independent: 'Placed independently', supported: 'Placed with a hint',
     hints: 'Hints requested', retries: 'Try-again moments', note: 'A record of play, not a score or a developmental assessment.',
-    newPuzzle: 'Start a fresh puzzle', resetNote: 'Starting fresh replaces the current puzzle on this device.',
+    newPuzzle: 'Start a fresh puzzle', resetNote: 'Starting fresh replaces only the selected level’s puzzle on this device.',
     done: 'Back to play', saved: 'Progress stays on this device', savingFailed: 'Progress can’t be saved in this browser. You can still play.',
     loadFailed: 'Saved progress could not be opened. A fresh puzzle is ready.',
     starter: 'Colors & shapes', how: 'How to play', howTitle: 'Two little clues. One little home.',
@@ -36,8 +37,9 @@ const words = {
     shapeNames: { circle: 'circle', triangle: 'triangle', square: 'square', diamond: 'diamond' },
   },
   he: {
+    levels: 'בחירת שלב', level: 'שלב', previousLevel: 'השלב הקודם', nextLevel: 'השלב הבא', levelProgress: 'ההתקדמות נשמרת בכל שלב בנפרד.',
     brand: 'מה במשבצת', parent: 'להורים', eyebrow: 'קצת מקום למחשבה',
-    title: 'לכל כרטיס יש', titleEnd: 'מקום משלו.', intro: 'מוצאים צבע. מזהים צורה. משחקים בדרך שלך.',
+    title: 'לכל כרטיס יש', titleEnd: 'מקום משלו.', intro: 'מגלים רמזים. מוצאים מקום. משחקים בדרך שלך.',
     board: 'מוצאים את המשבצת', tray: 'האוסף הקטן שלך', scatter: 'מפזרים', stack: 'עורמים',
     cardsLeft: 'כרטיסים לגלות', cardLeft: 'כרטיס לגלות', complete: 'הכול במקום',
     shuffle: 'מערבבים', skip: 'הכרטיס הבא', undo: 'ביטול צעד', hint: 'רמז קטן', more: 'עוד רמז',
@@ -55,7 +57,7 @@ const words = {
     puzzle: 'גודל הלוח', size2: 'התחלה קלה', size3: 'מקום לגלות', size4: 'לוח גדול יותר',
     language: 'שפה', session: 'המשחק הזה', independent: 'הונחו באופן עצמאי', supported: 'הונחו בעזרת רמז',
     hints: 'רמזים שהתבקשו', retries: 'ניסיונות נוספים', note: 'תיאור המשחק בלבד, לא ציון ולא הערכה התפתחותית.',
-    newPuzzle: 'מתחילים משחק חדש', resetNote: 'משחק חדש יחליף את הלוח הנוכחי במכשיר הזה.',
+    newPuzzle: 'מתחילים משחק חדש', resetNote: 'משחק חדש יחליף רק את הלוח של השלב שנבחר במכשיר הזה.',
     done: 'בחזרה למשחק', saved: 'ההתקדמות נשמרת במכשיר הזה', savingFailed: 'אי אפשר לשמור בדפדפן הזה. עדיין אפשר לשחק.',
     loadFailed: 'לא הצלחנו לפתוח את המשחק השמור. לוח חדש מחכה לך.',
     starter: 'צבעים וצורות', how: 'איך משחקים', howTitle: 'שני רמזים. מקום אחד.',
@@ -86,20 +88,37 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.help}</svg>;
 }
 
-function Symbol({ shape, color, header = false }: { shape: Shape; color?: Color; header?: boolean }) {
-  const props = { fill: color ? `var(--${color})` : 'none', stroke: header ? 'currentColor' : 'none', strokeWidth: 3.5, strokeLinejoin: 'round' as const };
+function Symbol({ shape, color, header = false, quantity = 1, scale = 3, direction, fill = 0 }: { shape: Shape; color?: Color; header?: boolean; quantity?: number; scale?: number; direction?: number; fill?: number }) {
+  const id = useId().replace(/:/g, '');
+  const ink = color ? `var(--${color})` : 'currentColor';
+  const props = { fill: header || fill === 3 ? 'none' : fill ? `url(#${id})` : ink, stroke: ink, strokeWidth: header || fill === 3 ? 3.5 : 1, strokeLinejoin: 'round' as const };
+  const positions = quantity === 1 ? [[40,40]] : quantity === 2 ? [[21,40],[59,40]] : quantity === 3 ? [[40,20],[21,58],[59,58]] : [[21,21],[59,21],[21,59],[59,59]];
   return <svg className={header ? 'shape shape-header' : 'shape'} viewBox="0 0 80 80" aria-hidden="true">
-    {shape === 'circle' && <circle cx="40" cy="40" r="27" {...props}/>}
-    {shape === 'triangle' && <path d="M40 10 71 66H9Z" {...props}/>}
-    {shape === 'square' && <rect x="15" y="15" width="50" height="50" rx="8" {...props}/>}
-    {shape === 'diamond' && <path d="M40 7 73 40 40 73 7 40Z" {...props}/>}
-    {!header && <ellipse cx="28" cy="26" rx="4" ry="6" fill="white" opacity=".2" transform="rotate(35 28 26)"/>}
+    <defs><pattern id={id} width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#fffefa"/>{fill === 1 ? <path d="M-3 3 3-3M0 12 12 0M9 15 15 9" stroke={ink} strokeWidth="5"/> : <circle cx="6" cy="6" r="3" fill={ink}/>}</pattern></defs>
+    {positions.map(([x,y], i) => <g key={i} transform={`translate(${x} ${y}) scale(${(quantity > 1 ? .46 : 1) * [.38,.58,.78,1][scale]}) translate(-40 -40)`}>
+      {direction !== undefined ? <path d="M40 8 69 39H53V71H27V39H11Z" transform={`rotate(${direction * 90} 40 40)`} {...props}/> : <>
+        {shape === 'circle' && <circle cx="40" cy="40" r="27" {...props}/>}
+        {shape === 'triangle' && <path d="M40 10 71 66H9Z" {...props}/>}
+        {shape === 'square' && <rect x="15" y="15" width="50" height="50" rx="8" {...props}/>}
+        {shape === 'diamond' && <path d="M40 7 73 40 40 73 7 40Z" {...props}/>}
+      </>}
+    </g>)}
   </svg>;
+}
+function CardSymbol({ card, level }: { card: Card; level: Level }) {
+  return <Symbol {...card} direction={level === 5 ? card.direction : undefined}/>;
+}
+function Clue({ feature, index }: { feature: Feature; index: number }) {
+  if (feature === 'color') return <span className="color-dot" style={{ background: `var(--${COLORS[index]})` }}/>;
+  return <Symbol shape={feature === 'shape' ? SHAPES[index] : 'circle'} header={feature === 'shape'}
+    color={feature === 'shape' ? undefined : 'green'} quantity={feature === 'quantity' ? index + 1 : 1}
+    scale={feature === 'scale' ? index : 3} direction={feature === 'direction' ? index : undefined} fill={feature === 'fill' ? index : 0}/>;
 }
 
 export default function Game() {
   // Start with deterministic markup so browser storage never changes server rendering.
-  const [game, setGame] = useState<GameState>(() => createGame(3, () => 0.5));
+  const [game, setGame] = useState<GameState>(() => createGame(3, () => 0.5, 0));
+  const [levelGames, setLevelGames] = useState<LevelGames>({});
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<Mode>('scatter');
   const [language, setLanguage] = useState<Language>('en');
@@ -116,31 +135,38 @@ export default function Game() {
   const wasComplete = useRef(false);
   const reducedMotion = useReducedMotion();
   const t = words[language];
-  const cards = cardsFor(game.size);
+  const cards = cardsFor(game.size, game.level);
+  const axes = LEVEL_AXES[game.level];
+  const levelName = LEVEL_NAMES[language][game.level];
+  const rowLabel = (row: number) => axes.row ? clueLabel(axes.row, row, language) : '';
+  const columnLabel = (column: number) => clueLabel(axes.column, column, language);
+  const ruleText = language === 'en'
+    ? axes.row ? 'Match the clue on the left and the clue above. Find where they meet.' : 'Match the color above. Any empty square beneath it fits.'
+    : axes.row ? 'מתאימים לרמז משמאל ולרמז למעלה. מוצאים איפה הם נפגשים.' : 'מתאימים לצבע למעלה. כל משבצת ריקה מתחתיו מתאימה.';
   const left = remaining(game);
   const count = game.board.filter(Boolean).length;
   const complete = isComplete(game);
   const hintTarget = cards.find(c => c.id === hintCard);
   const cardName = (id: string) => {
     const c = cards.find(c => c.id === id)!;
-    return `${t.colorNames[c.color]} · ${t.shapeNames[c.shape]}`;
+    return [rowLabel(c.row), columnLabel(c.column)].filter(Boolean).join(' · ');
   };
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      const saved = raw ? parseSaved(raw) : null;
-      if (saved) { setGame(saved.game); setMode(saved.mode); setLanguage(saved.language); setDraftSize(saved.game.size); wasComplete.current = isComplete(saved.game); }
-      else { setGame(createGame()); if (raw) setStorageIssue('loadFailed'); }
-    } catch { setGame(createGame()); setStorageIssue('savingFailed'); }
+      const saved = raw ? parseProgress(raw) : null;
+      if (saved) { setGame(saved.game); setLevelGames(saved.levels); setMode(saved.mode); setLanguage(saved.language); setDraftSize(saved.game.size); wasComplete.current = isComplete(saved.game); }
+      else { setGame(createGame(3, Math.random, 0)); if (raw) setStorageIssue('loadFailed'); }
+    } catch { setGame(createGame(3, Math.random, 0)); setStorageIssue('savingFailed'); }
     setReady(true);
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ game, mode, language })); }
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(packProgress({ game, mode, language }, levelGames))); }
     catch { setStorageIssue('savingFailed'); }
-  }, [game, mode, language, ready]);
+  }, [game, levelGames, mode, language, ready]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -153,9 +179,10 @@ export default function Game() {
   }, [panel, celebrate]);
 
   useEffect(() => {
+    if (!ready) return;
     if (complete && !wasComplete.current) { setCelebrate(true); setSelected(null); setFocusCell(null); }
     wasComplete.current = complete;
-  }, [complete]);
+  }, [complete, ready]);
 
   const clear = () => { setSelected(null); setFocusCell(null); setHintLevel(0); setHintCard(null); setFeedback('idle'); };
   const attempt = (id: string, cell: number) => {
@@ -181,17 +208,29 @@ export default function Game() {
   };
   const requestHint = () => {
     if (complete) return;
-    const id = selected ?? (focusCell !== null ? `${Math.floor(focusCell / game.size)}-${focusCell % game.size}` : left[0]);
+    const id = selected ?? (focusCell !== null ? left.find(id => isValidPlacement(game.size, id, focusCell, game.level)) : left[0]);
     if (!id) return;
     if (selected === null && focusCell === null) setSelected(id);
     setHintCard(id); setHintLevel(level => hintCard === id ? Math.min(level + 1, 3) : 1);
     setGame(g => ({ ...g, hintedCards: [...new Set([...g.hintedCards, id])], stats: { ...g.stats, hints: g.stats.hints + 1 } }));
   };
   const startFresh = (size: Size) => {
-    setGame(createGame(size)); setDraftSize(size); clear(); setCelebrate(false); setPanel(null); wasComplete.current = false;
+    const fresh = createGame(size, Math.random, game.level);
+    setLevelGames(levels => ({ ...levels, [progressKey(game.level, game.size)]: game, [progressKey(game.level, size)]: fresh }));
+    setGame(fresh); setDraftSize(size); clear(); setCelebrate(false); setPanel(null); wasComplete.current = false;
   };
+  const goToLevel = (level: Level) => {
+    const next = switchLevel(game, levelGames, level);
+    const size = next.game.size;
+    setLevelGames(next.levels); setGame(next.game); setDraftSize(size);
+    clear(); setCelebrate(false); setPanel(null); wasComplete.current = isComplete(next.game);
+  };
+  const nextLevel = LEVELS[game.level + 1];
   const closePanel = () => { setPanel(null); setCelebrate(false); };
-  const announcement = hintLevel ? [t.hintColor, t.hintShape, t.hintMeet][hintLevel - 1] : complete ? t.complete : t[feedback];
+  const hintMessages = language === 'en'
+    ? [axes.row ? `Look for the row: ${hintTarget ? rowLabel(hintTarget.row) : ''}.` : `Look for the color above: ${hintTarget ? columnLabel(hintTarget.column) : ''}.`, axes.row ? `Now find the column: ${hintTarget ? columnLabel(hintTarget.column) : ''}.` : 'Any empty square in that column fits.', axes.row ? 'Where do the two clues meet?' : 'Try a highlighted empty square.']
+    : [axes.row ? `מחפשים את השורה: ${hintTarget ? rowLabel(hintTarget.row) : ''}.` : `מחפשים את הצבע למעלה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.`, axes.row ? `עכשיו מחפשים את העמודה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.` : 'כל משבצת ריקה בעמודה מתאימה.', axes.row ? 'איפה שני הרמזים נפגשים?' : 'אפשר לנסות משבצת ריקה מוארת.'];
+  const announcement = hintLevel ? hintMessages[hintLevel - 1] : complete ? t.complete : ['chosen', 'squareChosen', 'wrong'].includes(feedback) ? ruleText : t[feedback];
 
   return <main className="app-shell" dir={language === 'he' ? 'rtl' : 'ltr'}>
     <header className="site-header flex items-center justify-between">
@@ -212,24 +251,41 @@ export default function Game() {
 
     {storageIssue && <p className="storage-notice" role="status">{t[storageIssue]}</p>}
 
-    <section className="play-space" data-size={game.size} aria-label={t.starter} aria-busy={!ready}>
+    <nav className="level-navigation" aria-label={t.levels}>
+      <div className="level-controls">
+        <button className="icon-button level-previous" aria-label={t.previousLevel} disabled={!ready || game.level === 0} onClick={() => goToLevel((game.level - 1) as Level)}><Icon name="arrow"/></button>
+        <div className="level-tabs">
+          {LEVELS.map(level => {
+            const levelGame = level === game.level ? game : levelGames[progressKey(level, game.size)];
+            const finished = levelGame && isComplete(levelGame);
+            return <button key={level} aria-current={level === game.level ? 'step' : undefined} aria-label={`${t.level} ${level} · ${LEVEL_NAMES[language][level]}${finished ? ` · ${t.complete}` : ''}`} disabled={!ready} onClick={() => goToLevel(level)}>
+              <span className="level-number">{finished ? <Icon name="check" size={14}/> : level}</span><span>{LEVEL_NAMES[language][level]}</span>
+            </button>;
+          })}
+        </div>
+        <button className="icon-button level-next" aria-label={t.nextLevel} disabled={!ready || nextLevel === undefined} onClick={() => nextLevel !== undefined && goToLevel(nextLevel)}><Icon name="arrow"/></button>
+      </div>
+      <p>{t.level} {game.level} · {levelName}. {t.levelProgress}</p>
+    </nav>
+
+    <section className="play-space" data-size={game.size} aria-label={levelName} aria-busy={!ready}>
       <div className="board-panel">
-        <div className="panel-heading"><div><p className="section-kicker">{t.starter}</p><h2>{t.board}</h2></div><span className="puzzle-size" dir="ltr">{game.size} × {game.size}</span></div>
-        <div className="board" role="group" aria-label={t.board} dir="ltr" style={{ '--size': game.size } as CSSProperties}>
-          <div className="corner-mark" aria-hidden="true"><span>↘</span></div>
-          {SHAPES.slice(0, game.size).map((shape, column) => <div className={`column-header ${hintTarget && hintLevel >= 2 && hintTarget.column === column ? 'hint-header' : ''}`} key={shape} aria-label={t.shapeNames[shape]}><Symbol shape={shape} header/></div>)}
-          {COLORS.slice(0, game.size).map((color, row) => <div className="board-row" key={color}>
-            <div className={`row-header ${hintTarget && hintTarget.row === row ? 'hint-header' : ''}`} aria-label={t.colorNames[color]}><span className="color-dot" style={{ background: `var(--${color})` }}/></div>
-            {SHAPES.slice(0, game.size).map((_, column) => {
+        <div className="panel-heading"><div><p className="section-kicker">{levelName}</p><h2>{t.board}</h2></div><span className="puzzle-size" dir="ltr">{game.size} × {game.size}</span></div>
+        <div className={`board ${game.level === 0 ? 'single-clue' : ''}`} role="group" aria-label={t.board} dir="ltr" style={{ '--size': game.size } as CSSProperties}>
+          {axes.row && <div className="corner-mark" aria-hidden="true"><span>↘</span></div>}
+          {Array.from({ length: game.size }, (_, column) => <div className={`column-header ${hintTarget && (game.level === 0 || hintLevel >= 2) && hintTarget.column === column ? 'hint-header' : ''}`} key={column} aria-label={columnLabel(column)}><Clue feature={axes.column} index={column}/></div>)}
+          {Array.from({ length: game.size }, (_, row) => <div className="board-row" key={row}>
+            {axes.row && <div className={`row-header ${hintTarget && hintTarget.row === row ? 'hint-header' : ''}`} aria-label={rowLabel(row)}><Clue feature={axes.row} index={row}/></div>}
+            {Array.from({ length: game.size }, (_, column) => {
               const cell = row * game.size + column;
               const id = game.board[cell];
               const card = id ? cards.find(c => c.id === id) : null;
-              const hinted = hintTarget && hintLevel >= 3 && hintTarget.row === row && hintTarget.column === column;
+              const hinted = hintTarget && hintLevel >= 3 && (game.level === 0 ? !id : hintTarget.row === row) && hintTarget.column === column;
               return <button key={cell} data-cell={cell} className={`board-cell ${id ? 'filled' : ''} ${selected && id === selected ? 'selected' : ''} ${focusCell === cell ? 'focused' : ''} ${hinted ? 'hint-cell' : ''}`}
-                aria-label={`${t.colorNames[color]} · ${t.shapeNames[SHAPES[column]]}${id ? ` · ${t.complete}` : ''}`}
+                aria-label={`${[rowLabel(row), columnLabel(column)].filter(Boolean).join(' · ')} · ${row + 1}, ${column + 1}${id ? ` · ${t.complete}` : ''}`}
                 aria-pressed={focusCell === cell || (id !== null && selected === id)} disabled={!ready}
                 onClick={() => chooseCell(cell)}>
-                {card ? <motion.span className="placed-symbol" initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><Symbol shape={card.shape} color={card.color}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
+                {card ? <motion.span className="placed-symbol" initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><CardSymbol card={card} level={game.level}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
               </button>;
             })}
           </div>)}
@@ -259,7 +315,7 @@ export default function Game() {
                   style={{ '--tilt': `${((card.row * 3 + card.column * 2) % 5) - 2}deg` } as CSSProperties}
                   aria-label={cardName(id)} aria-pressed={selected === id} disabled={!ready}
                   initial={false} animate={{ opacity: 1, scale: 1 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: .8 }}
-                  transition={{ duration: .18 }} onClick={() => chooseCard(id)}><Symbol color={card.color} shape={card.shape}/><span className="card-grain" aria-hidden="true"/></motion.button>;
+                  transition={{ duration: .18 }} onClick={() => chooseCard(id)}><CardSymbol card={card} level={game.level}/><span className="card-grain" aria-hidden="true"/></motion.button>;
               })}
             </AnimatePresence>
           </>}
@@ -287,13 +343,13 @@ export default function Game() {
 
     <dialog ref={dialog} className={`modal ${celebrate ? 'celebration' : ''}`} onCancel={closePanel} onClose={closePanel} dir={language === 'he' ? 'rtl' : 'ltr'}>
       <button className="icon-button modal-close" aria-label={t.done} onClick={closePanel}><Icon name="close"/></button>
-      {celebrate ? <><span className="finish-spark" aria-hidden="true">✳</span><p className="eyebrow">{t.complete}</p><h2>{t.finished}</h2><p>{t.finishBody}</p><button className="primary-button" onClick={() => startFresh(game.size)}>{t.again}<Icon name="arrow"/></button><button className="text-button" onClick={closePanel}>{t.explore}</button></> : panel === 'settings' ? <>
+      {celebrate ? <><span className="finish-spark" aria-hidden="true">✳</span><p className="eyebrow">{t.complete}</p><h2>{t.finished}</h2><p>{levelName} · {t.complete}</p>{nextLevel !== undefined && <button className="primary-button" onClick={() => goToLevel(nextLevel)}>{t.nextLevel}<Icon name="arrow"/></button>}<button className="primary-button" onClick={() => startFresh(game.size)}>{t.again}<Icon name="arrow"/></button><button className="text-button" onClick={closePanel}>{t.explore}</button></> : panel === 'settings' ? <>
         <p className="eyebrow">{t.parent}</p><h2>{t.settingsTitle}</h2><p className="modal-description">{t.settingsBody}</p>
         <fieldset><legend>{t.puzzle}</legend><div className="size-options">{([2, 3, 4] as const).map(size => <button key={size} aria-pressed={draftSize === size} onClick={() => setDraftSize(size)}><strong dir="ltr">{size} × {size}</strong><span>{t[`size${size}`]}</span></button>)}</div></fieldset>
         <fieldset><legend>{t.language}</legend><div className="language-options"><button aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>English</button><button aria-pressed={language === 'he'} onClick={() => setLanguage('he')}>עברית</button></div></fieldset>
         <div className="session-summary"><h3>{t.session}</h3><dl><div><dt>{t.independent}</dt><dd>{count - game.assisted.length}</dd></div><div><dt>{t.supported}</dt><dd>{game.assisted.length}</dd></div><div><dt>{t.hints}</dt><dd>{game.stats.hints}</dd></div><div><dt>{t.retries}</dt><dd>{game.stats.mistakes}</dd></div></dl><p>{t.note}</p></div>
         <p className="reset-note">{t.resetNote}</p><button className="primary-button" onClick={() => startFresh(draftSize)}>{t.newPuzzle}<Icon name="arrow"/></button><button className="text-button" onClick={closePanel}>{t.done}</button>
-      </> : panel === 'how' ? <><p className="eyebrow">{t.how}</p><h2>{t.howTitle}</h2><div className="how-example" aria-hidden="true"><span className="color-dot" style={{ background: 'var(--coral)' }}/><span>+</span><Symbol shape="triangle" header/><span>=</span><Symbol shape="triangle" color="coral"/></div><p>{t.howBody}</p><p>{t.howExtra}</p><button className="primary-button" onClick={closePanel}>{t.done}<Icon name="arrow"/></button></> : <><span className="finish-spark" aria-hidden="true"><Icon name="pause" size={40}/></span><h2>{t.pauseTitle}</h2><p>{t.pauseBody}</p><button className="primary-button" onClick={closePanel}>{t.resume}<Icon name="arrow"/></button></>}
+      </> : panel === 'how' ? <><p className="eyebrow">{t.how}</p><h2>{levelName}</h2><div className="how-example" aria-hidden="true">{axes.row && <><Clue feature={axes.row} index={0}/><span>+</span></>}<Clue feature={axes.column} index={0}/><span>=</span><CardSymbol card={cards[0]} level={game.level}/></div><p>{ruleText}</p><p>{t.howExtra}</p><button className="primary-button" onClick={closePanel}>{t.done}<Icon name="arrow"/></button></> : <><span className="finish-spark" aria-hidden="true"><Icon name="pause" size={40}/></span><h2>{t.pauseTitle}</h2><p>{t.pauseBody}</p><button className="primary-button" onClick={closePanel}>{t.resume}<Icon name="arrow"/></button></>}
     </dialog>
   </main>;
 }

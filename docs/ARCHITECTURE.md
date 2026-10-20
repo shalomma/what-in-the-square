@@ -39,3 +39,11 @@ A database and identity system become useful if cross-device progress is needed.
 - A frontend framework does not require an application backend.
 - Persistence and hosting are separate: serving the app does not imply storing its users' data.
 - A future model can request actions without becoming the authority for correctness.
+
+## Clue families and board size
+
+Levels 0–7 are puzzle definitions, independent of board size. Each definition chooses the feature represented by each axis: color, shape, quantity, size, direction, or fill. Level 0 has only a top clue row: all empty positions beneath the same color accept interchangeable cards. Levels 1–7 combine two features, including swapped axes in level 7.
+
+The deterministic engine creates the card inventory and validates placements. The interface draws the same features as visual clues and cards, and uses the current definition for instructions, accessible labels, and progressive hints. No AI or server is involved.
+
+Browser storage saves progress by `level:size`, retaining board state, undo history, and hint attribution. Original saves migrate to level 1 (colors and shapes). Navigation preserves progress; starting fresh replaces only the selected family and size.
