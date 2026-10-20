@@ -10,6 +10,7 @@
   --blue: #739aa9;
   --gold: #e1b04b;
   --green: #82a17b;
+  --purple: #a978d2;
 }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--ink); background: var(--paper); font-family: 'Avenir Next', Avenir, 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
@@ -245,11 +246,34 @@ h2 { font-size: 21px; letter-spacing: -.65px; font-weight: 550; margin: 0; }
 .level-tabs button[aria-current] { background: #e6eddd; border-color: var(--green-dark); }
 .level-number { flex-shrink: 0; display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #eef0e5; font-weight: 700; }
 .level-previous svg { transform: rotate(180deg); }
-.level-navigation>p { margin: 12px 48px 0; color: #697367; font-size: 12px; }
+.level-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin: 12px 48px 0; }
+.level-summary p { margin: 0; color: #697367; font-size: 12px; }
+.refresh-characters { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid #b8c5af; border-radius: 10px; background: #fffefa; color: var(--green-dark); font-size: 12px; }
+.refresh-characters:hover:not(:disabled) { background: #e6eddd; border-color: var(--green-dark); }
 .board.single-clue { grid-template-columns: repeat(var(--size), minmax(0, 1fr)); }
 .column-header>.shape, .row-header>.shape { width: 45px; height: 45px; }
+.glitter-theme {
+  --coral: #fa7895;
+  --blue: #5ab9ed;
+  --gold: #ffce42;
+  --green: #72dca7;
+  --purple: #a978d2;
+}
+.card-art { display: block; width: 100%; height: 100%; overflow: hidden; border-radius: 8px; }
+.glitter-theme .play-card, .glitter-theme .board-cell { aspect-ratio: 1; padding: 3px; overflow: hidden; }
+.glitter-theme .play-card .card-grain { display: none; }
+.glitter-theme .placed-symbol { width: 100%; height: 100%; }
+.glitter-theme .stack-area .play-card, .glitter-theme .stack-shadow { aspect-ratio: 1; }
+.character-clue { filter: grayscale(1); }
+.column-header>.character-clue { width: 52px; height: 52px; }
+.glitter-theme .column-header { min-height: 52px; }
+.glitter-theme .how-example>.card-art { width: 86px; height: 86px; flex-shrink: 0; }
+@media (max-width: 610px) {
+  .glitter-theme .scatter-area { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .glitter-theme .play-space[data-size='4'] .scatter-area .play-card { padding: 3px; }
+}
 @media (max-width: 640px) {
   .level-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .level-tabs button { padding: 8px; font-size: 11px; gap: 5px; }
-  .level-navigation>p { margin-inline: 0; }
+  .level-summary { margin-inline: 0; }
 }

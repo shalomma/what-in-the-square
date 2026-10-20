@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState, useId, type CSSProperties } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { COLORS, SHAPES, SAVE_KEY, LEVELS, LEVEL_AXES, LEVEL_NAMES, clueLabel, progressKey, isValidPlacement, cardsFor, createGame, isComplete, parseProgress, packProgress, switchLevel, place, remaining, returnCard, shuffleRemaining, skipTop, undo, type Card, type Feature, type Level, type Color, type GameState, type Language, type LevelGames, type Mode, type Shape, type Size } from '@/lib/game';
+import { COLORS, SHAPES, SAVE_KEY, LEVELS, LEVEL_AXES, LEVEL_NAMES, clueLabel, progressKey, isValidPlacement, cardsFor, createGame, isComplete, parseProgress, packProgress, switchLevel, place, remaining, returnCard, shuffleRemaining, refreshCharacters, skipTop, undo, type Card, type Feature, type Level, type Color, type GameState, type Language, type LevelGames, type Mode, type Shape, type Size } from '@/lib/game';
 
-import { HeartCharacter, HeartCelebration } from './heart-celebration';
+import { HeartCelebration } from './heart-celebration';
+import { CardArt, CHARACTER_NAMES, characterName } from './card-art';
 
 const words = {
   en: {
     levels: 'Choose a level', level: 'Level', previousLevel: 'Previous level', nextLevel: 'Next level', levelProgress: 'Progress is saved for each level.',
+    refreshCharacters: 'Refresh characters',
     brand: 'what in the square', parent: 'For grown-ups', eyebrow: 'A LITTLE ROOM TO THINK',
     title: 'Every card has', titleEnd: 'a little home.', intro: 'Explore the clues. Find a place. Make it your own.',
     board: 'Find the square', tray: 'Your little collection', scatter: 'Spread out', stack: 'Make a stack',
@@ -40,6 +42,7 @@ const words = {
   },
   he: {
     levels: 'בחירת שלב', level: 'שלב', previousLevel: 'השלב הקודם', nextLevel: 'השלב הבא', levelProgress: 'ההתקדמות נשמרת בכל שלב בנפרד.',
+    refreshCharacters: 'החלפת דמויות',
     brand: 'מה במשבצת', parent: 'להורים', eyebrow: 'קצת מקום למחשבה',
     title: 'לכל כרטיס יש', titleEnd: 'מקום משלו.', intro: 'מגלים רמזים. מוצאים מקום. משחקים בדרך שלך.',
     board: 'מוצאים את המשבצת', tray: 'האוסף הקטן שלך', scatter: 'מפזרים', stack: 'עורמים',
@@ -86,6 +89,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     pause: <><path d="M8 5v14M16 5v14"/></>,
     leaf: <><path d="M20 3C6 2 2 10 7 15s13 1 13-12ZM4 20 16 8"/></>,
     return: <><path d="m8 3-5 5 5 5M3 8h12a6 6 0 0 1 0 12h-3"/></>,
+    refresh: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.help}</svg>;
 }
@@ -107,12 +111,13 @@ function Symbol({ shape, color, header = false, quantity = 1, scale = 3, directi
     </g>)}
   </svg>;
 }
-function CardSymbol({ card, level }: { card: Card; level: Level }) {
-  if (level === 0 && card.row === 0) return <HeartCharacter color={`var(--${card.color})`}/>;
+function CardSymbol({ card, level, characters }: { card: Card; level: Level; characters?: number[] }) {
+  if (level <= 1) return <CardArt card={card} level={level} characters={characters}/>;
   return <Symbol {...card} direction={level === 5 ? card.direction : undefined}/>;
 }
-function Clue({ feature, index }: { feature: Feature; index: number }) {
-  if (feature === 'color') return <span className="color-dot" style={{ background: `var(--${COLORS[index]})` }}/>;
+function Clue({ feature, index, characters = false, characterSelection, colors = COLORS }: { feature: Feature; index: number; characters?: boolean; characterSelection?: number[]; colors?: readonly Color[] }) {
+  if (characters && feature === 'shape') return <CardArt card={cardsFor(4, 1, colors)[index]} level={1} characters={characterSelection} neutral/>;
+  if (feature === 'color') return <span className="color-dot" style={{ background: `var(--${colors[index]})` }}/>;
   return <Symbol shape={feature === 'shape' ? SHAPES[index] : 'circle'} header={feature === 'shape'}
     color={feature === 'shape' ? undefined : 'green'} quantity={feature === 'quantity' ? index + 1 : 1}
     scale={feature === 'scale' ? index : 3} direction={feature === 'direction' ? index : undefined} fill={feature === 'fill' ? index : 0}/>;
@@ -141,11 +146,17 @@ export default function Game() {
   useEffect(() => () => { void audio.current?.close(); }, []);
   const reducedMotion = useReducedMotion();
   const t = words[language];
-  const cards = cardsFor(game.size, game.level);
+  const cards = cardsFor(game.size, game.level, game.colors);
   const axes = LEVEL_AXES[game.level];
   const levelName = LEVEL_NAMES[language][game.level];
-  const rowLabel = (row: number) => axes.row ? clueLabel(axes.row, row, language) : '';
-  const columnLabel = (column: number) => clueLabel(axes.column, column, language);
+  const label = (feature: Feature, index: number) => {
+    if (game.level <= 1 && feature === 'color') return (language === 'en'
+      ? ['pink', 'blue', 'yellow', 'mint green', 'purple'] : ['ורוד', 'כחול', 'צהוב', 'ירוק מנטה', 'סגול'])[COLORS.indexOf(game.colors?.[index] ?? COLORS[index])];
+    if (game.level === 1 && feature === 'shape') return CHARACTER_NAMES[language][game.characters?.[index] ?? index];
+    return clueLabel(feature, index, language);
+  };
+  const rowLabel = (row: number) => axes.row ? label(axes.row, row) : '';
+  const columnLabel = (column: number) => label(axes.column, column);
   const ruleText = language === 'en'
     ? axes.row ? 'Match the clue on the left and the clue above. Find where they meet.' : 'Match the color above. Any empty square beneath it fits.'
     : axes.row ? 'מתאימים לרמז משמאל ולרמז למעלה. מוצאים איפה הם נפגשים.' : 'מתאימים לצבע למעלה. כל משבצת ריקה מתחתיו מתאימה.';
@@ -155,6 +166,7 @@ export default function Game() {
   const hintTarget = cards.find(c => c.id === hintCard);
   const cardName = (id: string) => {
     const c = cards.find(c => c.id === id)!;
+    if (game.level === 0) return `${columnLabel(c.column)} · ${characterName(c, game.level, language, game.characters)}`;
     return [rowLabel(c.row), columnLabel(c.column)].filter(Boolean).join(' · ');
   };
 
@@ -269,7 +281,7 @@ export default function Game() {
     : [axes.row ? `מחפשים את השורה: ${hintTarget ? rowLabel(hintTarget.row) : ''}.` : `מחפשים את הצבע למעלה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.`, axes.row ? `עכשיו מחפשים את העמודה: ${hintTarget ? columnLabel(hintTarget.column) : ''}.` : 'כל משבצת ריקה בעמודה מתאימה.', axes.row ? 'איפה שני הרמזים נפגשים?' : 'אפשר לנסות משבצת ריקה מוארת.'];
   const announcement = hintLevel ? hintMessages[hintLevel - 1] : complete ? t.complete : ['chosen', 'squareChosen', 'wrong'].includes(feedback) ? ruleText : t[feedback];
 
-  return <main className="app-shell" onClick={event => {
+  return <main className={`app-shell${game.level <= 1 ? ' glitter-theme' : ''}`} onClick={event => {
     if (selected && !(event.target as Element).closest('button, a, dialog')) clear();
   }} dir={language === 'he' ? 'rtl' : 'ltr'}>
     {selected && heldPointer && !panel && !celebrate && <div
@@ -280,7 +292,7 @@ export default function Game() {
         pointerEvents: 'none', zIndex: 1000, display: 'grid', placeItems: 'center',
         background: 'var(--paper, #fffefa)', borderRadius: 16,
         boxShadow: '0 8px 24px #0002', padding: 8, boxSizing: 'border-box' }}
-    ><CardSymbol card={cards.find(card => card.id === selected)!} level={game.level}/></div>}
+    ><CardSymbol card={cards.find(card => card.id === selected)!} level={game.level} characters={game.characters}/></div>}
     <header className="site-header flex items-center justify-between">
       <a className="brand" href="/" aria-label={t.brand}>
         <span className="brand-mark" aria-hidden="true"><i/><i/><i/><i/></span>
@@ -313,7 +325,12 @@ export default function Game() {
         </div>
         <button className="icon-button level-next" aria-label={t.nextLevel} disabled={!ready || nextLevel === undefined} onClick={() => nextLevel !== undefined && goToLevel(nextLevel)}><Icon name="arrow"/></button>
       </div>
-      <p>{t.level} {game.level} · {levelName}. {t.levelProgress}</p>
+      <div className="level-summary">
+        <p>{t.level} {game.level} · {levelName}. {t.levelProgress}</p>
+        {game.level <= 1 && <button className="refresh-characters" disabled={!ready} onClick={() => {
+          setGame(g => refreshCharacters(g)); clear();
+        }}><Icon name="refresh" size={18}/>{t.refreshCharacters}</button>}
+      </div>
     </nav>
 
     <section className="play-space" data-size={game.size} aria-label={levelName} aria-busy={!ready}>
@@ -321,9 +338,9 @@ export default function Game() {
         <div className="panel-heading"><div><p className="section-kicker">{levelName}</p><h2>{t.board}</h2></div><span className="puzzle-size" dir="ltr">{game.size} × {game.size}</span></div>
         <div className={`board ${game.level === 0 ? 'single-clue' : ''}`} role="group" aria-label={t.board} dir="ltr" style={{ '--size': game.size } as CSSProperties}>
           {axes.row && <div className="corner-mark" aria-hidden="true"><span>↘</span></div>}
-          {Array.from({ length: game.size }, (_, column) => <div className={`column-header ${hintTarget && (game.level === 0 || hintLevel >= 2) && hintTarget.column === column ? 'hint-header' : ''}`} key={column} aria-label={columnLabel(column)}><Clue feature={axes.column} index={column}/></div>)}
+          {Array.from({ length: game.size }, (_, column) => <div className={`column-header ${hintTarget && (game.level === 0 || hintLevel >= 2) && hintTarget.column === column ? 'hint-header' : ''}`} key={column} aria-label={columnLabel(column)}><Clue feature={axes.column} index={column} characters={game.level === 1} characterSelection={game.characters} colors={game.colors}/></div>)}
           {Array.from({ length: game.size }, (_, row) => <div className="board-row" key={row}>
-            {axes.row && <div className={`row-header ${hintTarget && hintTarget.row === row ? 'hint-header' : ''}`} aria-label={rowLabel(row)}><Clue feature={axes.row} index={row}/></div>}
+            {axes.row && <div className={`row-header ${hintTarget && hintTarget.row === row ? 'hint-header' : ''}`} aria-label={rowLabel(row)}><Clue feature={axes.row} index={row} characters={game.level === 1} characterSelection={game.characters} colors={game.colors}/></div>}
             {Array.from({ length: game.size }, (_, column) => {
               const cell = row * game.size + column;
               const id = game.board[cell];
@@ -333,7 +350,7 @@ export default function Game() {
                 aria-label={`${[rowLabel(row), columnLabel(column)].filter(Boolean).join(' · ')} · ${row + 1}, ${column + 1}${id ? ` · ${t.complete}` : ''}`}
                 aria-pressed={focusCell === cell || (id !== null && selected === id)} disabled={!ready}
                 onClick={event => { if (!selected && id) grabPointer(event); chooseCell(cell); }}>
-                {card ? <motion.span className="placed-symbol" style={{ visibility: selected === id && heldPointer ? 'hidden' : 'visible' }} initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><CardSymbol card={card} level={game.level}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
+                {card ? <motion.span className="placed-symbol" style={{ visibility: selected === id && heldPointer ? 'hidden' : 'visible' }} initial={reducedMotion ? false : { scale: .65, opacity: .4 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: .2 }} key={id}><CardSymbol card={card} level={game.level} characters={game.characters}/></motion.span> : <span className="cell-dot" aria-hidden="true"/>}
               </button>;
             })}
           </div>)}
@@ -363,7 +380,7 @@ export default function Game() {
                   style={{ '--tilt': `${((card.row * 3 + card.column * 2) % 5) - 2}deg` } as CSSProperties}
                   aria-label={cardName(id)} aria-pressed={selected === id} disabled={!ready}
                   initial={false} animate={{ opacity: selected === id && heldPointer ? .15 : 1, scale: 1 }} exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: .8 }}
-                  transition={{ duration: .18 }} onClick={event => { if (focusCell === null && selected !== id) grabPointer(event); chooseCard(id); }}><CardSymbol card={card} level={game.level}/><span className="card-grain" aria-hidden="true"/></motion.button>;
+                  transition={{ duration: .18 }} onClick={event => { if (focusCell === null && selected !== id) grabPointer(event); chooseCard(id); }}><CardSymbol card={card} level={game.level} characters={game.characters}/><span className="card-grain" aria-hidden="true"/></motion.button>;
               })}
             </AnimatePresence>
           </>}
@@ -398,7 +415,7 @@ export default function Game() {
         <fieldset><legend>{t.language}</legend><div className="language-options"><button aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>English</button><button aria-pressed={language === 'he'} onClick={() => setLanguage('he')}>עברית</button></div></fieldset>
         <div className="session-summary"><h3>{t.session}</h3><dl><div><dt>{t.independent}</dt><dd>{count - game.assisted.length}</dd></div><div><dt>{t.supported}</dt><dd>{game.assisted.length}</dd></div><div><dt>{t.hints}</dt><dd>{game.stats.hints}</dd></div><div><dt>{t.retries}</dt><dd>{game.stats.mistakes}</dd></div></dl><p>{t.note}</p></div>
         <p className="reset-note">{t.resetNote}</p><button className="primary-button" onClick={() => startFresh(draftSize)}>{t.newPuzzle}<Icon name="arrow"/></button><button className="text-button" onClick={closePanel}>{t.done}</button>
-      </> : panel === 'how' ? <><p className="eyebrow">{t.how}</p><h2>{levelName}</h2><div className="how-example" aria-hidden="true">{axes.row && <><Clue feature={axes.row} index={0}/><span>+</span></>}<Clue feature={axes.column} index={0}/><span>=</span><CardSymbol card={cards[0]} level={game.level}/></div><p>{ruleText}</p><p>{t.howExtra}</p><button className="primary-button" onClick={closePanel}>{t.done}<Icon name="arrow"/></button></> : <><span className="finish-spark" aria-hidden="true"><Icon name="pause" size={40}/></span><h2>{t.pauseTitle}</h2><p>{t.pauseBody}</p><button className="primary-button" onClick={closePanel}>{t.resume}<Icon name="arrow"/></button></>}
+      </> : panel === 'how' ? <><p className="eyebrow">{t.how}</p><h2>{levelName}</h2><div className="how-example" aria-hidden="true">{axes.row && <><Clue feature={axes.row} index={0} characters={game.level === 1} characterSelection={game.characters} colors={game.colors}/><span>+</span></>}<Clue feature={axes.column} index={0} characters={game.level === 1} characterSelection={game.characters} colors={game.colors}/><span>=</span><CardSymbol card={cards[0]} level={game.level} characters={game.characters}/></div><p>{ruleText}</p><p>{t.howExtra}</p><button className="primary-button" onClick={closePanel}>{t.done}<Icon name="arrow"/></button></> : <><span className="finish-spark" aria-hidden="true"><Icon name="pause" size={40}/></span><h2>{t.pauseTitle}</h2><p>{t.pauseBody}</p><button className="primary-button" onClick={closePanel}>{t.resume}<Icon name="arrow"/></button></>}
     </dialog>
   </main>;
 }

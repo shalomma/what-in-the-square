@@ -1,7 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import { cardsFor, createGame, isComplete, isValidPlacement, parseSaved, place, remaining, returnCard, shuffled, shuffleRemaining, skipTop, undo } from './game';
+import { cardsFor, createGame, isComplete, isValidPlacement, parseSaved, place, remaining, returnCard, shuffled, shuffleRemaining, refreshCharacters, skipTop, undo } from './game';
 
 describe('puzzle rules', () => {
+  it.each([2, 3, 4] as const)('refreshes %s characters without resetting the puzzle, even when randomness repeats', size => {
+    for (const level of [0, 1] as const) {
+      const game = place(createGame(size, () => .5, level), '0-0', 0).state;
+      const refreshed = refreshCharacters(game, () => .5);
+      expect(new Set(refreshed.characters).size).toBe(size);
+      expect(refreshed.characters?.some(index => !game.characters!.includes(index))).toBe(true);
+      const { characters: beforeCharacters, ...before } = game;
+      const { characters: afterCharacters, ...after } = refreshed;
+      expect(after).toEqual(before);
+      expect(parseSaved(JSON.stringify({ game: refreshed, mode: 'scatter', language: 'en' }))?.game).toEqual(refreshed);
+    }
+  });
+  it.each([2, 3, 4] as const)('selects %s distinct characters and keeps them stable throughout a puzzle', size => {
+    for (const level of [0, 1] as const) {
+      const game = createGame(size, () => 0, level);
+      const other = createGame(size, () => .999, level);
+      expect(game.characters).toHaveLength(size);
+      expect(new Set(game.characters).size).toBe(size);
+      expect(new Set(game.colors).size).toBe(size);
+      expect(game.colors).toHaveLength(size);
+      expect(other.characters).not.toEqual(game.characters);
+      const placed = place(game, '0-0', 0).state;
+      expect(shuffleRemaining(placed).characters).toEqual(game.characters);
+      expect(shuffleRemaining(placed).colors).toEqual(game.colors);
+      expect(undo(placed).characters).toEqual(game.characters);
+      const saved = { game: placed, mode: 'scatter', language: 'en' };
+      expect(parseSaved(JSON.stringify(saved))?.game.characters).toEqual(game.characters);
+      expect(parseSaved(JSON.stringify(saved))?.game.colors).toEqual(game.colors);
+      const { characters: _, ...legacy } = game;
+      expect(parseSaved(JSON.stringify({ ...saved, game: legacy }))).not.toBeNull();
+      for (const characters of [[0, 0], [6, 1], 'heart', [0, 1, 2, 3, 4]]) {
+        expect(parseSaved(JSON.stringify({ ...saved, game: { ...game, characters } }))).toBeNull();
+      }
+      for (const colors of [['purple', 'purple'], ['orange', 'blue'], 'purple', []]) {
+        expect(parseSaved(JSON.stringify({ ...saved, game: { ...game, colors } }))).toBeNull();
+      }
+    }
+  });
   it.each([2, 3, 4] as const)('gives every card exactly one correct square on a %s board', size => {
     const cards = cardsFor(size);
     expect(new Set(cards.map(c => c.id)).size).toBe(size ** 2);
