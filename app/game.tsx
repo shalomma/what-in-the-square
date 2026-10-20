@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useId, type CSSProperties } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { COLORS, SHAPES, SAVE_KEY, LEVELS, LEVEL_AXES, LEVEL_NAMES, clueLabel, progressKey, isValidPlacement, cardsFor, createGame, isComplete, parseProgress, packProgress, switchLevel, place, remaining, returnCard, shuffleRemaining, skipTop, undo, type Card, type Feature, type Level, type Color, type GameState, type Language, type LevelGames, type Mode, type Shape, type Size } from '@/lib/game';
 
+import { HeartCharacter, HeartCelebration } from './heart-celebration';
+
 const words = {
   en: {
     levels: 'Choose a level', level: 'Level', previousLevel: 'Previous level', nextLevel: 'Next level', levelProgress: 'Progress is saved for each level.',
@@ -106,6 +108,7 @@ function Symbol({ shape, color, header = false, quantity = 1, scale = 3, directi
   </svg>;
 }
 function CardSymbol({ card, level }: { card: Card; level: Level }) {
+  if (level === 0 && card.row === 0) return <HeartCharacter color={`var(--${card.color})`}/>;
   return <Symbol {...card} direction={level === 5 ? card.direction : undefined}/>;
 }
 function Clue({ feature, index }: { feature: Feature; index: number }) {
@@ -134,6 +137,8 @@ export default function Game() {
   const [celebrate, setCelebrate] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const wasComplete = useRef(false);
+  const audio = useRef<AudioContext | null>(null);
+  useEffect(() => () => { void audio.current?.close(); }, []);
   const reducedMotion = useReducedMotion();
   const t = words[language];
   const cards = cardsFor(game.size, game.level);
@@ -213,6 +218,11 @@ export default function Game() {
   };
   const clear = () => { setSelected(null); setHeldPointer(null); setFocusCell(null); setHintLevel(0); setHintCard(null); setFeedback('idle'); };
   const attempt = (id: string, cell: number) => {
+    // Unlock sound inside the placement gesture, before the completion effect.
+    try {
+      if (!audio.current && typeof AudioContext !== 'undefined') audio.current = new AudioContext();
+      void audio.current?.resume().catch(() => {});
+    } catch { /* The puzzle still works when audio is unavailable. */ }
     const result = place(game, id, cell);
     setGame(result.state);
     if (result.outcome === 'correct') { clear(); setFeedback('correct'); }
@@ -381,6 +391,7 @@ export default function Game() {
 
     <dialog ref={dialog} className={`modal ${celebrate ? 'celebration' : ''}`} onCancel={closePanel} onClose={closePanel} dir={language === 'he' ? 'rtl' : 'ltr'}>
       <button className="icon-button modal-close" aria-label={t.done} onClick={closePanel}><Icon name="close"/></button>
+      {celebrate && <HeartCelebration audio={audio.current} language={language}/>}
       {celebrate ? <><span className="finish-spark" aria-hidden="true">✳</span><p className="eyebrow">{t.complete}</p><h2>{t.finished}</h2><p>{levelName} · {t.complete}</p>{nextLevel !== undefined && <button className="primary-button" onClick={() => goToLevel(nextLevel)}>{t.nextLevel}<Icon name="arrow"/></button>}<button className="primary-button" onClick={() => startFresh(game.size)}>{t.again}<Icon name="arrow"/></button><button className="text-button" onClick={closePanel}>{t.explore}</button></> : panel === 'settings' ? <>
         <p className="eyebrow">{t.parent}</p><h2>{t.settingsTitle}</h2><p className="modal-description">{t.settingsBody}</p>
         <fieldset><legend>{t.puzzle}</legend><div className="size-options">{([2, 3, 4] as const).map(size => <button key={size} aria-pressed={draftSize === size} onClick={() => setDraftSize(size)}><strong dir="ltr">{size} × {size}</strong><span>{t[`size${size}`]}</span></button>)}</div></fieldset>
